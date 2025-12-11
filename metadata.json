@@ -1,0 +1,5 @@
+{
+  "name": "Gerador de Relatório Fotográfico",
+  "description": "Gera documentos Word (.docx) formatados com cabeçalho padrão e galeria de imagens, utilizando IA para descrições automáticas opcionais.",
+  "requestFramePermissions": []
+}
