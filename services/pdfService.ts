@@ -32,7 +32,7 @@ const calculateFitDimensions = (originalW: number, originalH: number, maxW: numb
     };
 };
 
-export const generatePdf = async (data: ReportData, images: ReportImage[], layout: 'list' | 'grid' | 'grid3' = 'list') => {
+export const generatePdf = async (data: ReportData, images: ReportImage[], layout: 'list' | 'grid' | 'grid3' = 'list', styleMode: 'simple' | 'card' = 'simple') => {
   const doc = new jsPDF();
   
   // Helper to center text
@@ -40,6 +40,18 @@ export const generatePdf = async (data: ReportData, images: ReportImage[], layou
     doc.setFont("helvetica", isBold ? "bold" : "normal");
     doc.setFontSize(fontSize);
     doc.text(text, PAGE_WIDTH / 2, y, { align: 'center', maxWidth: CONTENT_WIDTH });
+  };
+
+  const drawBorder = (x: number, y: number, w: number, h: number) => {
+      if (styleMode === 'simple') return;
+      doc.setDrawColor(0);
+      doc.setLineWidth(0.1);
+      // For Card, maybe round corners? jsPDF has roundedRect
+      if (styleMode === 'card') {
+          doc.roundedRect(x, y, w, h, 2, 2, 'S');
+      } else {
+          doc.rect(x, y, w, h, 'S');
+      }
   };
 
   let cursorY = MARGIN_Y;
@@ -65,16 +77,17 @@ export const generatePdf = async (data: ReportData, images: ReportImage[], layou
   // 2. Comments Section
   if (data.comments && data.comments.trim().length > 0) {
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
+    doc.setFontSize(10); // Reduced font size for label
     doc.text("Comentários:", MARGIN_X, cursorY);
-    cursorY += 6;
+    cursorY += 5; // Reduced spacing
 
     doc.setFont("helvetica", "normal");
+    doc.setFontSize(9); // Reduced font size for content
     // Ensure text splitting works with margins
     const commentLines = doc.splitTextToSize(data.comments, CONTENT_WIDTH);
     doc.text(commentLines, MARGIN_X, cursorY);
     
-    cursorY += (commentLines.length * 5) + 10;
+    cursorY += (commentLines.length * 4) + 8; // Compact line height and spacing
   } else {
     cursorY += 5;
   }
@@ -82,7 +95,7 @@ export const generatePdf = async (data: ReportData, images: ReportImage[], layou
   // 3. Images Logic
   
   if (layout === 'list') {
-      // --- Single Column Mode (Standard behavior, allow variable height) ---
+      // --- Single Column Mode ---
       for (let i = 0; i < images.length; i++) {
         const img = images[i];
         try {
@@ -96,56 +109,73 @@ export const generatePdf = async (data: ReportData, images: ReportImage[], layou
             // Calculate text height
             let captionHeight = 0;
             let captionLines: string[] = [];
-            const label = `Figura ${i + 1}: `;
+            const label = img.description ? `Figura ${i + 1}: ` : `Figura ${i + 1}`;
             
-            if (img.description) {
-                doc.setFontSize(10);
-                doc.setFont("helvetica", "italic"); 
-                const fullText = `${label}${img.description}`;
-                if (doc.getTextWidth(fullText) > CONTENT_WIDTH) {
-                    captionLines = doc.splitTextToSize(fullText, CONTENT_WIDTH);
-                    captionHeight = (captionLines.length * 5); 
-                } else {
-                    captionHeight = 5; 
-                }
+            doc.setFontSize(10);
+            doc.setFont("helvetica", "italic"); 
+            const fullText = img.description ? `${label}${img.description}` : label;
+            
+            if (doc.getTextWidth(fullText) > CONTENT_WIDTH) {
+                captionLines = doc.splitTextToSize(fullText, CONTENT_WIDTH);
+                captionHeight = (captionLines.length * 5); 
+            } else {
+                captionLines = [fullText];
+                captionHeight = 5; 
             }
 
-            const blockHeight = imgHeight + captionHeight + 15; 
+            // Padding logic (Reduced padding)
+            const padding = styleMode !== 'simple' ? 5 : 0;
+            const contentHeight = imgHeight + (captionHeight > 0 ? captionHeight + 5 : 0) + 2; // Reduced extra spacing
+            const blockHeight = contentHeight + (padding * 2);
 
             if (cursorY + blockHeight > PAGE_HEIGHT - MARGIN_BOTTOM) {
                 doc.addPage();
                 cursorY = MARGIN_Y;
             }
+            
+            // Draw Border if needed
+            if (styleMode !== 'simple') {
+                const boxWidth = LIST_IMG_WIDTH + 20; // 10 padding each side
+                const boxX = (PAGE_WIDTH - boxWidth) / 2;
+                drawBorder(boxX, cursorY, boxWidth, blockHeight);
+            }
 
             const xPos = (PAGE_WIDTH - LIST_IMG_WIDTH) / 2;
-            doc.addImage(imageData, 'JPEG', xPos, cursorY, LIST_IMG_WIDTH, imgHeight);
-            cursorY += imgHeight + 6;
+            const imgY = cursorY + padding;
+            doc.addImage(imageData, 'JPEG', xPos, imgY, LIST_IMG_WIDTH, imgHeight);
+            
+            let textY = imgY + imgHeight + 6;
 
-            if (img.description) {
-                doc.setFontSize(10);
-                if (captionLines.length > 0) {
-                    doc.setFont("helvetica", "italic");
-                    doc.text(captionLines, PAGE_WIDTH / 2, cursorY, { align: 'center' });
-                    cursorY += captionHeight + 10;
-                } else {
-                    doc.setFont("helvetica", "bold");
-                    const labelWidth = doc.getTextWidth(label);
-                    doc.setFont("helvetica", "italic");
-                    const descWidth = doc.getTextWidth(img.description);
-                    const totalWidth = labelWidth + descWidth;
-                    
-                    let startX = (PAGE_WIDTH - totalWidth) / 2;
-                    
-                    doc.setFont("helvetica", "bold");
-                    doc.text(label, startX, cursorY);
-                    doc.setFont("helvetica", "italic");
-                    doc.text(img.description, startX + labelWidth, cursorY);
-                    
-                    cursorY += 15;
-                }
+            doc.setFontSize(10);
+            
+            // If we have just one line and simple description or no description, handle styling carefully
+            if (img.description && captionLines.length === 1) {
+                doc.setFont("helvetica", "bold");
+                const labelWidth = doc.getTextWidth(label);
+                doc.setFont("helvetica", "italic");
+                const descWidth = doc.getTextWidth(img.description);
+                const totalWidth = labelWidth + descWidth;
+                
+                let startX = (PAGE_WIDTH - totalWidth) / 2;
+                
+                doc.setFont("helvetica", "bold");
+                doc.text(label, startX, textY);
+                doc.setFont("helvetica", "italic");
+                doc.text(img.description, startX + labelWidth, textY);
+            } else if (!img.description) {
+                // Just the label, centered
+                doc.setFont("helvetica", "bold");
+                doc.text(label, PAGE_WIDTH / 2, textY, { align: 'center' });
             } else {
-                cursorY += 15;
+                // Multi-line description, fallback to plain italic for everything to keep it simple or split logic
+                // For simplicity in multiline, we'll keep it italic, but ideally we should bold the prefix.
+                // Doing mixed style in multiline jsPDF is complex. 
+                // Let's print just the lines as they are for multiline.
+                doc.setFont("helvetica", "italic");
+                doc.text(captionLines, PAGE_WIDTH / 2, textY, { align: 'center' });
             }
+
+            cursorY += blockHeight + 4; // Reduced spacing between items
 
         } catch (e) {
             console.error(`Error adding list image ${img.id}`, e);
@@ -181,11 +211,10 @@ export const generatePdf = async (data: ReportData, images: ReportImage[], layou
               // Calculate row height (Fixed cell height + Dynamic caption height)
               const maxCaptionWidth = GRID3_CELL_WIDTH; 
               const getCaptionProps = (img: ReportImage, idx: number) => {
-                  if (!img.description) return { lines: [], height: 0 };
                   doc.setFontSize(8); 
                   doc.setFont("helvetica", "italic");
-                  const label = `Figura ${idx + 1}: `;
-                  const text = `${label}${img.description}`;
+                  const label = img.description ? `Figura ${idx + 1}: ` : `Figura ${idx + 1}`;
+                  const text = img.description ? `${label}${img.description}` : label;
                   const lines = doc.splitTextToSize(text, maxCaptionWidth);
                   return { lines, height: lines.length * 3.5 }; 
               };
@@ -196,65 +225,71 @@ export const generatePdf = async (data: ReportData, images: ReportImage[], layou
 
               // Determine biggest text block to keep row even
               const maxTextHeight = Math.max(c1.height, c2.height, c3.height);
-              const rowHeight = GRID3_CELL_HEIGHT + maxTextHeight + 15; // + padding
+              
+              // Add padding if borders (Reduced padding)
+              const padding = styleMode !== 'simple' ? 3 : 0;
+              const cellHeight = GRID3_CELL_HEIGHT + maxTextHeight + 8 + (padding * 2); // Reduced internal spacing
 
-              if (cursorY + rowHeight > PAGE_HEIGHT - MARGIN_BOTTOM) {
+              if (cursorY + cellHeight > PAGE_HEIGHT - MARGIN_BOTTOM) {
                   doc.addPage();
                   cursorY = MARGIN_Y;
               }
 
               // Draw Item 1
-              // Center inside the fixed cell box
-              const x1 = MARGIN_X + (GRID3_CELL_WIDTH - dim1.width) / 2;
-              const y1 = cursorY + (GRID3_CELL_HEIGHT - dim1.height) / 2;
+              const x1Box = MARGIN_X;
+              const yBox = cursorY;
+              drawBorder(x1Box, yBox, GRID3_CELL_WIDTH, cellHeight);
+
+              const x1 = x1Box + (GRID3_CELL_WIDTH - dim1.width) / 2;
+              const y1 = yBox + padding + (GRID3_CELL_HEIGHT - dim1.height) / 2;
               doc.addImage(data1, 'JPEG', x1, y1, dim1.width, dim1.height);
               
-              if (c1.lines.length > 0 || img1.description) {
+              if (c1.lines.length > 0) {
                   doc.setFontSize(8);
                   doc.setFont("helvetica", "italic");
-                  const text = c1.lines.length > 0 ? c1.lines : `Fig ${i+1}: ${img1.description}`;
-                  // Text aligns at bottom of the fixed cell box area
-                  doc.text(text, MARGIN_X, cursorY + GRID3_CELL_HEIGHT + 5);
+                  doc.text(c1.lines, x1Box + GRID3_CELL_WIDTH/2, yBox + padding + GRID3_CELL_HEIGHT + 5, { align: 'center' });
               }
 
               // Draw Item 2
               if (img2 && data2 && dim2) {
-                  const baseX = MARGIN_X + GRID3_CELL_WIDTH + GRID3_GAP;
-                  const x2 = baseX + (GRID3_CELL_WIDTH - dim2.width) / 2;
-                  const y2 = cursorY + (GRID3_CELL_HEIGHT - dim2.height) / 2;
+                  const x2Box = MARGIN_X + GRID3_CELL_WIDTH + GRID3_GAP;
+                  drawBorder(x2Box, yBox, GRID3_CELL_WIDTH, cellHeight);
+
+                  const x2 = x2Box + (GRID3_CELL_WIDTH - dim2.width) / 2;
+                  const y2 = yBox + padding + (GRID3_CELL_HEIGHT - dim2.height) / 2;
                   doc.addImage(data2, 'JPEG', x2, y2, dim2.width, dim2.height);
 
-                  if (c2.lines.length > 0 || img2.description) {
+                  if (c2.lines.length > 0) {
                       doc.setFontSize(8);
                       doc.setFont("helvetica", "italic");
-                      const text = c2.lines.length > 0 ? c2.lines : `Fig ${i+2}: ${img2.description}`;
-                      doc.text(text, baseX, cursorY + GRID3_CELL_HEIGHT + 5);
+                      doc.text(c2.lines, x2Box + GRID3_CELL_WIDTH/2, yBox + padding + GRID3_CELL_HEIGHT + 5, { align: 'center' });
                   }
               }
 
               // Draw Item 3
               if (img3 && data3 && dim3) {
-                  const baseX = MARGIN_X + (GRID3_CELL_WIDTH + GRID3_GAP) * 2;
-                  const x3 = baseX + (GRID3_CELL_WIDTH - dim3.width) / 2;
-                  const y3 = cursorY + (GRID3_CELL_HEIGHT - dim3.height) / 2;
+                  const x3Box = MARGIN_X + (GRID3_CELL_WIDTH + GRID3_GAP) * 2;
+                  drawBorder(x3Box, yBox, GRID3_CELL_WIDTH, cellHeight);
+
+                  const x3 = x3Box + (GRID3_CELL_WIDTH - dim3.width) / 2;
+                  const y3 = yBox + padding + (GRID3_CELL_HEIGHT - dim3.height) / 2;
                   doc.addImage(data3, 'JPEG', x3, y3, dim3.width, dim3.height);
 
-                  if (c3.lines.length > 0 || img3.description) {
+                  if (c3.lines.length > 0) {
                       doc.setFontSize(8);
                       doc.setFont("helvetica", "italic");
-                      const text = c3.lines.length > 0 ? c3.lines : `Fig ${i+3}: ${img3.description}`;
-                      doc.text(text, baseX, cursorY + GRID3_CELL_HEIGHT + 5);
+                      doc.text(c3.lines, x3Box + GRID3_CELL_WIDTH/2, yBox + padding + GRID3_CELL_HEIGHT + 5, { align: 'center' });
                   }
               }
 
-              cursorY += rowHeight;
+              cursorY += cellHeight + 3; // Reduced spacing between rows
 
           } catch (e) {
               console.error(`Error adding grid3 row ${i}`, e);
           }
       }
   } else {
-      // --- Grid Mode 2 Columns (Harmonious Box) ---
+      // --- Grid Mode 2 Columns ---
       for (let i = 0; i < images.length; i += 2) {
           const img1 = images[i];
           const img2 = images[i+1]; 
@@ -273,11 +308,10 @@ export const generatePdf = async (data: ReportData, images: ReportImage[], layou
 
               const maxCaptionWidth = GRID_CELL_WIDTH; 
               const getCaptionProps = (img: ReportImage, idx: number) => {
-                  if (!img.description) return { lines: [], height: 0 };
                   doc.setFontSize(9); 
                   doc.setFont("helvetica", "italic");
-                  const label = `Figura ${idx + 1}: `;
-                  const text = `${label}${img.description}`;
+                  const label = img.description ? `Figura ${idx + 1}: ` : `Figura ${idx + 1}`;
+                  const text = img.description ? `${label}${img.description}` : label;
                   const lines = doc.splitTextToSize(text, maxCaptionWidth);
                   return { lines, height: lines.length * 4 }; 
               };
@@ -286,41 +320,48 @@ export const generatePdf = async (data: ReportData, images: ReportImage[], layou
               const c2 = img2 ? getCaptionProps(img2, i + 1) : { lines: [], height: 0 };
 
               const maxTextHeight = Math.max(c1.height, c2.height);
-              const rowHeight = GRID_CELL_HEIGHT + maxTextHeight + 15;
+              
+              // Reduced padding
+              const padding = styleMode !== 'simple' ? 4 : 0;
+              // Reduced internal spacing
+              const cellHeight = GRID_CELL_HEIGHT + maxTextHeight + 8 + (padding * 2);
 
-              if (cursorY + rowHeight > PAGE_HEIGHT - MARGIN_BOTTOM) {
+              if (cursorY + cellHeight > PAGE_HEIGHT - MARGIN_BOTTOM) {
                   doc.addPage();
                   cursorY = MARGIN_Y;
               }
 
               // Draw Item 1
-              const x1 = MARGIN_X + (GRID_CELL_WIDTH - dim1.width) / 2;
-              const y1 = cursorY + (GRID_CELL_HEIGHT - dim1.height) / 2;
+              const x1Box = MARGIN_X;
+              drawBorder(x1Box, cursorY, GRID_CELL_WIDTH, cellHeight);
+              
+              const x1 = x1Box + (GRID_CELL_WIDTH - dim1.width) / 2;
+              const y1 = cursorY + padding + (GRID_CELL_HEIGHT - dim1.height) / 2;
               doc.addImage(data1, 'JPEG', x1, y1, dim1.width, dim1.height);
 
-              if (c1.lines.length > 0 || img1.description) {
+              if (c1.lines.length > 0) {
                    doc.setFontSize(9);
                    doc.setFont("helvetica", "italic");
-                   const text = c1.lines.length > 0 ? c1.lines : `Fig ${i+1}: ${img1.description}`;
-                   doc.text(text, MARGIN_X, cursorY + GRID_CELL_HEIGHT + 5);
+                   doc.text(c1.lines, x1Box + GRID_CELL_WIDTH/2, cursorY + padding + GRID_CELL_HEIGHT + 5, { align: 'center' });
               }
 
               // Draw Item 2
               if (img2 && data2 && dim2) {
-                  const baseX = MARGIN_X + GRID_CELL_WIDTH + GRID_GAP;
-                  const x2 = baseX + (GRID_CELL_WIDTH - dim2.width) / 2;
-                  const y2 = cursorY + (GRID_CELL_HEIGHT - dim2.height) / 2;
+                  const x2Box = MARGIN_X + GRID_CELL_WIDTH + GRID_GAP;
+                  drawBorder(x2Box, cursorY, GRID_CELL_WIDTH, cellHeight);
+
+                  const x2 = x2Box + (GRID_CELL_WIDTH - dim2.width) / 2;
+                  const y2 = cursorY + padding + (GRID_CELL_HEIGHT - dim2.height) / 2;
                   doc.addImage(data2, 'JPEG', x2, y2, dim2.width, dim2.height);
 
-                  if (c2.lines.length > 0 || img2.description) {
+                  if (c2.lines.length > 0) {
                       doc.setFontSize(9);
                       doc.setFont("helvetica", "italic");
-                      const text = c2.lines.length > 0 ? c2.lines : `Fig ${i+2}: ${img2.description}`;
-                      doc.text(text, baseX, cursorY + GRID_CELL_HEIGHT + 5);
+                      doc.text(c2.lines, x2Box + GRID_CELL_WIDTH/2, cursorY + padding + GRID_CELL_HEIGHT + 5, { align: 'center' });
                   }
               }
 
-              cursorY += rowHeight;
+              cursorY += cellHeight + 3; // Reduced spacing between rows
 
           } catch (e) {
               console.error(`Error adding grid row ${i}`, e);

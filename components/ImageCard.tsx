@@ -1,5 +1,6 @@
-import React from 'react';
-import { Trash2, RotateCw, GripVertical } from 'lucide-react';
+
+import React, { useState } from 'react';
+import { Trash2, RotateCw, GripVertical, ZoomIn, ZoomOut } from 'lucide-react';
 import { ReportImage } from '../types';
 
 interface ImageCardProps {
@@ -26,7 +27,12 @@ export const ImageCard: React.FC<ImageCardProps> = ({
   innerRef,
   isDragging
 }) => {
+  const [isZoomed, setIsZoomed] = useState(false);
   const currentPosition = index + 1;
+
+  const handleDoubleClick = () => {
+    setIsZoomed(!isZoomed);
+  };
 
   return (
     <div 
@@ -60,18 +66,41 @@ export const ImageCard: React.FC<ImageCardProps> = ({
       </div>
 
       {/* Image Container */}
-      <div className="relative aspect-[4/3] bg-slate-100 overflow-hidden flex items-center justify-center border-b border-slate-100">
+      <div 
+        className="relative aspect-[4/3] bg-slate-100 overflow-hidden flex items-center justify-center border-b border-slate-100 cursor-zoom-in group"
+        onDoubleClick={handleDoubleClick}
+        title="Duplo clique para zoom"
+      >
         <img
           src={image.previewUrl}
           alt={`Foto ${currentPosition}`}
-          style={{ transform: `rotate(${image.rotation}deg)` }}
+          style={{ 
+            transform: `rotate(${image.rotation}deg) scale(${isZoomed ? 3.0 : 1})`,
+            cursor: isZoomed ? 'zoom-out' : 'zoom-in'
+          }}
           className="w-full h-full object-contain transition-transform duration-300 ease-in-out"
         />
         
+        {/* Zoom Indicator Overlay */}
+        <div className="absolute top-2 left-2 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
+            {isZoomed ? (
+                <div className="bg-blue-600/80 text-white p-1 rounded-md backdrop-blur-sm">
+                    <ZoomOut className="w-4 h-4" />
+                </div>
+            ) : (
+                <div className="bg-slate-800/40 text-white p-1 rounded-md backdrop-blur-sm">
+                    <ZoomIn className="w-4 h-4" />
+                </div>
+            )}
+        </div>
+
         {/* Rotate Button Overlay */}
         <button
-          onClick={() => onRotate(image.id)}
-          className="absolute bottom-2 right-2 p-1.5 bg-white/90 text-slate-700 rounded-full shadow-sm hover:text-blue-600 transition-colors border border-slate-200"
+          onClick={(e) => {
+              e.stopPropagation();
+              onRotate(image.id);
+          }}
+          className="absolute bottom-2 right-2 p-1.5 bg-white/90 text-slate-700 rounded-full shadow-sm hover:text-blue-600 transition-colors border border-slate-200 z-10"
           title="Rotacionar 90º"
         >
           <RotateCw className="w-4 h-4" />

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { FileText, Upload, Download, Image as ImageIcon, FileType, X, AlertCircle } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { FileText, Upload, Download, Image as ImageIcon, FileType, X, AlertCircle, Eye, Palette, Wand2 } from 'lucide-react';
 import {
   DndContext, 
   closestCenter,
@@ -22,6 +22,7 @@ import {
 import { Input } from './components/Input';
 import { ImageCard } from './components/ImageCard';
 import { SortableItem } from './components/SortableItem';
+import { DocumentPreview } from './components/DocumentPreview';
 import { ReportData, ReportImage, GenerationStatus } from './types';
 import { generateDocx } from './services/docxService';
 import { generatePdf } from './services/pdfService';
@@ -52,9 +53,17 @@ const App: React.FC = () => {
   });
 
   const [images, setImages] = useState<ReportImage[]>([]);
-  const [layout, setLayout] = useState<'list' | 'grid' | 'grid3'>('list');
+  const [layout, setLayout] = useState<'list' | 'grid' | 'grid3'>('grid');
+  // Removed 'table' from styleMode type
+  const [styleMode, setStyleMode] = useState<'simple' | 'card'>('card');
   const [status, setStatus] = useState<GenerationStatus>({ isGenerating: false, message: '' });
   
+  // Validation State
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // Preview Modal State
+  const [showPreview, setShowPreview] = useState(false);
+
   // Error Modal State
   const [errorModal, setErrorModal] = useState<{ isOpen: boolean; messages: string[] }>({
     isOpen: false,
@@ -63,6 +72,35 @@ const App: React.FC = () => {
   
   // Dragging State
   const [activeId, setActiveId] = useState<string | null>(null);
+
+  // Refs
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // Effect for Horizontal Scroll locking
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      // Only intervene if there is horizontal scrolling content
+      if (container.scrollWidth > container.clientWidth) {
+         // Determine if we are scrolling vertically with the mouse wheel
+         if (e.deltaY !== 0) {
+            // Prevent default vertical page scroll
+            e.preventDefault();
+            // Manually scroll horizontally
+            container.scrollLeft += e.deltaY;
+         }
+      }
+    };
+
+    // Add event listener with passive: false to allow preventDefault
+    container.addEventListener('wheel', handleWheel, { passive: false });
+
+    return () => {
+      container.removeEventListener('wheel', handleWheel);
+    };
+  }, []);
 
   // DnD Sensors
   const sensors = useSensors(
@@ -95,6 +133,15 @@ const App: React.FC = () => {
     }
 
     setReportData((prev) => ({ ...prev, [name]: value }));
+
+    // Clear error for this field if it exists
+    if (errors[name]) {
+      setErrors((prev) => {
+        const newErrors = { ...prev };
+        delete newErrors[name];
+        return newErrors;
+      });
+    }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -113,6 +160,97 @@ const App: React.FC = () => {
     }
     // Reset input to allow selecting the same file again if needed
     e.target.value = '';
+  };
+
+  const handleGenerateExample = async () => {
+    if (status.isGenerating) return;
+    
+    // Clear any validation errors when generating example
+    setErrors({});
+
+    // 1. Fill Text Data (Generic Data, No specific entities, Pure numbers in process)
+    setReportData({
+        schoolName: 'Escola Municipal Exemplo',
+        motif: 'Relatório Fotográfico de Instalações',
+        processNumber: '12345-67890123/2024-00', // Pure numbers, no "DF"
+        address: 'Rua Modelo, 100 - Bairro Centro, Cidade - UF',
+        date: new Date().toISOString().split('T')[0],
+        comments: 'Relatório gerado para demonstração das instalações da unidade escolar, contemplando fachada, áreas de convivência e salas de aula.\n\nObserva-se que os ambientes encontram-se organizados.',
+    });
+
+    setStatus({ isGenerating: true, message: 'Baixando 8 imagens de exemplo...' });
+
+    try {
+        // 2. Fetch Sample Images 
+        const imageUrls = [
+            'https://images.unsplash.com/photo-1577896334614-54e604ba0056?auto=format&fit=crop&w=800&q=80', // 1. Fachada
+            'https://images.unsplash.com/photo-1576013551627-0cc20b96c2a7?auto=format&fit=crop&w=800&q=80', // 2. Piscina
+            'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?auto=format&fit=crop&w=800&q=80', // 3. Sala de Aula
+            'https://images.unsplash.com/photo-1556910103-1c02745a30bf?auto=format&fit=crop&w=800&q=80', // 4. Copa / Cozinha
+            'https://images.unsplash.com/photo-1596464716127-f9a8759fa417?auto=format&fit=crop&w=800&q=80', // 5. Playground
+            'https://images.unsplash.com/photo-1562774053-701939374585?auto=format&fit=crop&w=800&q=80', // 6. Corredor
+            'https://images.unsplash.com/photo-1628177142894-da1e95e81a8b?auto=format&fit=crop&w=800&q=80', // 7. Pia
+            'https://images.unsplash.com/photo-1503676260728-1c00da094a0b?auto=format&fit=crop&w=800&q=80'  // 8. Geral
+        ];
+
+        const newImages: ReportImage[] = [];
+        const TARGET_COUNT = 8;
+
+        // Try to fetch images up to the target count
+        for (let i = 0; i < TARGET_COUNT; i++) {
+            try {
+                // Use modulo to cycle through URLs if we run out or just to be safe
+                const url = imageUrls[i % imageUrls.length];
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                
+                const blob = await response.blob();
+                const file = new File([blob], `exemplo_${i+1}.jpg`, { type: 'image/jpeg' });
+                
+                newImages.push({
+                    id: generateId(),
+                    file,
+                    previewUrl: URL.createObjectURL(file),
+                    description: '', // Empty captions
+                    rotation: 0
+                });
+            } catch (err) {
+                console.warn(`Could not fetch sample image ${i+1}`, err);
+            }
+        }
+
+        // 3. Ensure we have exactly 8 images. 
+        // If some downloads failed, we duplicate the successful ones to reach the target.
+        if (newImages.length > 0 && newImages.length < TARGET_COUNT) {
+            let cloneSourceIndex = 0;
+            while (newImages.length < TARGET_COUNT) {
+                const sourceImg = newImages[cloneSourceIndex];
+                // Clone the file object (conceptually, reusing the blob content)
+                const clonedFile = new File([sourceImg.file], `copia_${newImages.length + 1}.jpg`, { type: sourceImg.file.type });
+                
+                newImages.push({
+                    id: generateId(),
+                    file: clonedFile,
+                    previewUrl: URL.createObjectURL(clonedFile),
+                    description: '', 
+                    rotation: 0
+                });
+                
+                // Cycle through available images to clone
+                cloneSourceIndex = (cloneSourceIndex + 1) % newImages.length; 
+            }
+        }
+        
+        // Clean up old URLs
+        images.forEach(img => URL.revokeObjectURL(img.previewUrl));
+        setImages(newImages);
+
+    } catch (error) {
+        console.error("Error generating example", error);
+        setErrorModal({ isOpen: true, messages: ["Erro ao baixar imagens de exemplo. Verifique sua conexão."]});
+    } finally {
+        setStatus({ isGenerating: false, message: '' });
+    }
   };
 
   const removeImage = (id: string) => {
@@ -163,12 +301,27 @@ const App: React.FC = () => {
   };
 
   const handleGenerate = async (type: 'doc' | 'pdf') => {
+    const newErrors: Record<string, string> = {};
     const missingFields: string[] = [];
 
-    if (!reportData.schoolName) missingFields.push("Nome da instituição escolar");
-    if (!reportData.motif) missingFields.push("Motivo");
-    if (!reportData.processNumber) missingFields.push("Processo nº");
-    if (!reportData.date) missingFields.push("Data do Relatório");
+    if (!reportData.schoolName) {
+        newErrors.schoolName = "Este campo é obrigatório";
+        missingFields.push("Nome da instituição escolar");
+    }
+    if (!reportData.motif) {
+        newErrors.motif = "Este campo é obrigatório";
+        missingFields.push("Motivo");
+    }
+    if (!reportData.processNumber) {
+        newErrors.processNumber = "Este campo é obrigatório";
+        missingFields.push("Processo nº");
+    }
+    if (!reportData.date) {
+        newErrors.date = "Este campo é obrigatório";
+        missingFields.push("Data do Relatório");
+    }
+
+    setErrors(newErrors);
 
     if (missingFields.length > 0) {
       setErrorModal({
@@ -196,9 +349,9 @@ const App: React.FC = () => {
       setTimeout(async () => {
         try {
             if (type === 'doc') {
-                await generateDocx(reportDataFormatted, images, layout);
+                await generateDocx(reportDataFormatted, images, layout, styleMode);
             } else {
-                await generatePdf(reportDataFormatted, images, layout);
+                await generatePdf(reportDataFormatted, images, layout, styleMode);
             }
             setStatus({ isGenerating: false, message: '' });
         } catch (error) {
@@ -242,49 +395,77 @@ const App: React.FC = () => {
               </h1>
               <p className="text-slate-500 mt-1">Gere relatórios padronizados para vistorias escolares.</p>
             </div>
-            <div className="flex flex-col sm:flex-row gap-3">
-               <button
-                  onClick={() => handleGenerate('doc')}
-                  disabled={status.isGenerating}
-                  className={`flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-semibold shadow-md transition-all transform hover:-translate-y-0.5 active:translate-y-0 ${
-                  status.isGenerating
-                      ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
-                      : 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-200'
-                  }`}
-              >
-                  {status.isGenerating ? (
-                  <>
-                      {/* Using Upload icon as a placeholder spinner if needed or just text */}
-                      <span className="animate-spin w-5 h-5 border-2 border-current border-t-transparent rounded-full mr-2"></span>
-                      Processando...
-                  </>
-                  ) : (
-                  <>
-                      <Download className="w-5 h-5" />
-                      Baixar .DOCX
-                  </>
-                  )}
-              </button>
-              <button
-                  onClick={() => handleGenerate('pdf')}
-                  disabled={status.isGenerating}
-                  className={`flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-semibold shadow-md transition-all transform hover:-translate-y-0.5 active:translate-y-0 ${
-                  status.isGenerating
-                      ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                      : 'bg-red-600 hover:bg-red-700 text-white shadow-red-200'
-                  }`}
-              >
-                  <FileType className="w-5 h-5" />
-                  Baixar .PDF
-              </button>
+            <div className="flex flex-col items-start md:items-end gap-2">
+                <div className="flex flex-col sm:flex-row gap-3">
+                    <button
+                        onClick={() => setShowPreview(true)}
+                        disabled={status.isGenerating}
+                        className="flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-semibold shadow-md transition-all transform hover:-translate-y-0.5 active:translate-y-0 bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 hover:text-blue-600"
+                        title="Pré-visualizar documento"
+                    >
+                        <Eye className="w-5 h-5" />
+                        <span className="hidden sm:inline">Visualizar .DOCX</span>
+                    </button>
+
+                    <button
+                        onClick={() => handleGenerate('doc')}
+                        disabled={status.isGenerating}
+                        className={`flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-semibold shadow-md transition-all transform hover:-translate-y-0.5 active:translate-y-0 ${
+                        status.isGenerating
+                            ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                            : 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-200'
+                        }`}
+                    >
+                        {status.isGenerating ? (
+                        <>
+                            {/* Using Upload icon as a placeholder spinner if needed or just text */}
+                            <span className="animate-spin w-5 h-5 border-2 border-current border-t-transparent rounded-full mr-2"></span>
+                            Processando...
+                        </>
+                        ) : (
+                        <>
+                            <Download className="w-5 h-5" />
+                            Baixar .DOCX
+                        </>
+                        )}
+                    </button>
+                    <button
+                        onClick={() => handleGenerate('pdf')}
+                        disabled={status.isGenerating}
+                        className={`flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-semibold shadow-md transition-all transform hover:-translate-y-0.5 active:translate-y-0 ${
+                        status.isGenerating
+                            ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                            : 'bg-red-600 hover:bg-red-700 text-white shadow-red-200'
+                        }`}
+                    >
+                        <FileType className="w-5 h-5" />
+                        Baixar .PDF
+                    </button>
+                </div>
+                <div className="flex items-center gap-1.5 text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded border border-amber-100 font-medium">
+                    <AlertCircle className="w-3 h-3 flex-shrink-0" />
+                    <span>PDFs podem ter a formatação diferente</span>
+                </div>
             </div>
           </header>
 
           {/* Input Form */}
           <section className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
-            <h2 className="text-xl font-semibold text-slate-800 mb-6 flex items-center gap-2">
-              1. Informações do Cabeçalho
-            </h2>
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+                <h2 className="text-xl font-semibold text-slate-800 flex items-center gap-2">
+                    1. Informações do Cabeçalho
+                </h2>
+                <button
+                    onClick={handleGenerateExample}
+                    disabled={status.isGenerating}
+                    className="text-sm flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 font-medium transition-colors border border-indigo-100"
+                    title="Preencher com dados e fotos de teste"
+                >
+                    <Wand2 className="w-4 h-4" />
+                    Gerar Exemplo
+                </button>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               <div className="col-span-1 md:col-span-2">
                   <Input
@@ -293,6 +474,7 @@ const App: React.FC = () => {
                   placeholder="Ex: E.M. Prof. João da Silva"
                   value={reportData.schoolName}
                   onChange={handleInputChange}
+                  error={errors.schoolName}
                   />
               </div>
               <div className="col-span-1 md:col-span-2">
@@ -302,6 +484,7 @@ const App: React.FC = () => {
                   placeholder="Ex: Rua das Flores, 123"
                   value={reportData.address}
                   onChange={handleInputChange}
+                  // Address is optional, no error prop needed usually, unless strict
                   />
               </div>
               <div className="col-span-1 md:col-span-2">
@@ -311,6 +494,7 @@ const App: React.FC = () => {
                   placeholder="Ex: Vistoria de infraestrutura predial"
                   value={reportData.motif}
                   onChange={handleInputChange}
+                  error={errors.motif}
                   />
               </div>
               <Input
@@ -319,6 +503,7 @@ const App: React.FC = () => {
                 placeholder="Ex: XXXXX-XXXXXXXX/XXXX-XX"
                 value={reportData.processNumber}
                 onChange={handleInputChange}
+                error={errors.processNumber}
               />
               <Input
                 label="Data do Relatório *"
@@ -326,6 +511,7 @@ const App: React.FC = () => {
                 type="date"
                 value={reportData.date}
                 onChange={handleInputChange}
+                error={errors.date}
               />
               <div className="col-span-1 md:col-span-2 lg:col-span-4">
                  <div className="flex flex-col gap-1 w-full">
@@ -358,45 +544,75 @@ const App: React.FC = () => {
                   </p>
                </div>
                
-               {/* Layout Selector */}
-               <div className="flex flex-col items-start md:items-end gap-1.5">
-                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">
-                    Disposição das fotos no documento
-                  </span>
-                  <div className="flex items-center bg-slate-100 p-1 rounded-lg border border-slate-200">
-                    <button 
-                      onClick={() => setLayout('list')}
-                      className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
-                        layout === 'list' 
-                          ? 'bg-white text-blue-600 shadow-sm' 
-                          : 'text-slate-500 hover:text-slate-700'
-                      }`}
-                      title="Uma foto por linha"
-                    >
-                      1 Coluna
-                    </button>
-                    <button 
-                      onClick={() => setLayout('grid')}
-                      className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
-                        layout === 'grid' 
-                          ? 'bg-white text-blue-600 shadow-sm' 
-                          : 'text-slate-500 hover:text-slate-700'
-                      }`}
-                      title="Duas fotos por linha"
-                    >
-                      2 Colunas
-                    </button>
-                    <button 
-                      onClick={() => setLayout('grid3')}
-                      className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
-                        layout === 'grid3' 
-                          ? 'bg-white text-blue-600 shadow-sm' 
-                          : 'text-slate-500 hover:text-slate-700'
-                      }`}
-                      title="Três fotos por linha"
-                    >
-                      3 Colunas
-                    </button>
+               <div className="flex flex-col sm:flex-row items-end gap-6">
+                 {/* Layout Selector */}
+                 <div className="flex flex-col items-start md:items-end gap-1.5">
+                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">
+                      Disposição das fotos no documento
+                    </span>
+                    <div className="flex items-center bg-slate-100 p-1 rounded-lg border border-slate-200">
+                      <button 
+                        onClick={() => setLayout('list')}
+                        className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+                          layout === 'list' 
+                            ? 'bg-white text-blue-600 shadow-sm' 
+                            : 'text-slate-500 hover:text-slate-700'
+                        }`}
+                      >
+                        1 Coluna
+                      </button>
+                      <button 
+                        onClick={() => setLayout('grid')}
+                        className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+                          layout === 'grid' 
+                            ? 'bg-white text-blue-600 shadow-sm' 
+                            : 'text-slate-500 hover:text-slate-700'
+                        }`}
+                      >
+                        2 Colunas
+                      </button>
+                      <button 
+                        onClick={() => setLayout('grid3')}
+                        className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+                          layout === 'grid3' 
+                            ? 'bg-white text-blue-600 shadow-sm' 
+                            : 'text-slate-500 hover:text-slate-700'
+                        }`}
+                      >
+                        3 Colunas
+                      </button>
+                   </div>
+                 </div>
+
+                 {/* Style Selector */}
+                 <div className="flex flex-col items-start md:items-end gap-1.5">
+                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wide flex items-center gap-1">
+                      <Palette className="w-3 h-3" />
+                      Estilo Visual
+                    </span>
+                    <div className="flex items-center bg-slate-100 p-1 rounded-lg border border-slate-200">
+                      <button 
+                        onClick={() => setStyleMode('simple')}
+                        className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+                          styleMode === 'simple' 
+                            ? 'bg-white text-blue-600 shadow-sm' 
+                            : 'text-slate-500 hover:text-slate-700'
+                        }`}
+                      >
+                        Simples
+                      </button>
+                      {/* Removed "Células" Button */}
+                      <button 
+                        onClick={() => setStyleMode('card')}
+                        className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+                          styleMode === 'card' 
+                            ? 'bg-white text-blue-600 shadow-sm' 
+                            : 'text-slate-500 hover:text-slate-700'
+                        }`}
+                      >
+                        Card
+                      </button>
+                   </div>
                  </div>
                </div>
             </div>
@@ -423,7 +639,10 @@ const App: React.FC = () => {
             ) : (
               <>
                   {/* Mini Visualization / Sequence Strip (Sortable) */}
-                  <div className="mb-6 p-4 bg-slate-100 rounded-xl overflow-x-auto border border-slate-200 custom-scrollbar">
+                  <div 
+                    ref={scrollContainerRef}
+                    className="mb-6 p-4 bg-slate-100 rounded-xl overflow-x-auto border border-slate-200 custom-scrollbar"
+                  >
                       <SortableContext 
                         items={thumbIds} 
                         strategy={horizontalListSortingStrategy}
@@ -546,6 +765,17 @@ const App: React.FC = () => {
                 )
             ) : null}
         </DragOverlay>
+
+        {/* Preview Modal */}
+        {showPreview && (
+          <DocumentPreview 
+            data={reportData}
+            images={images}
+            layout={layout}
+            styleMode={styleMode}
+            onClose={() => setShowPreview(false)}
+          />
+        )}
 
         {/* Error Modal */}
         {errorModal.isOpen && (

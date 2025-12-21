@@ -193,35 +193,57 @@ const createCellContent = (
         })
     );
 
-    if (img.description) {
-        children.push(
-            new Paragraph({
-                alignment: AlignmentType.CENTER,
-                children: [
-                    new TextRun({
-                        text: `Figura ${index + 1}: `,
-                        bold: true,
-                        size: fontSize,
-                        font: "Arial"
-                    }),
+    // Caption Logic
+    children.push(
+        new Paragraph({
+            alignment: AlignmentType.CENTER,
+            children: [
+                new TextRun({
+                    text: img.description ? `Figura ${index + 1}: ` : `Figura ${index + 1}`,
+                    bold: true,
+                    size: fontSize,
+                    font: "Arial"
+                }),
+                ...(img.description ? [
                     new TextRun({
                         text: img.description,
                         italics: true,
                         size: fontSize, 
                         font: "Arial"
                     })
-                ],
-                spacing: { after: 120 } 
-            })
-        );
-    } else {
-        children.push(new Paragraph({ spacing: { after: 120 } }));
-    }
+                ] : [])
+            ],
+            spacing: { after: 120 } 
+        })
+    );
+    
     return children;
 };
 
-export const generateDocx = async (data: ReportData, images: ReportImage[], layout: 'list' | 'grid' | 'grid3' = 'list') => {
+export const generateDocx = async (data: ReportData, images: ReportImage[], layout: 'list' | 'grid' | 'grid3' = 'list', styleMode: 'simple' | 'card' = 'simple') => {
   const children = [];
+
+  // Helper to determine borders based on style
+  const getBorders = () => {
+    if (styleMode === 'simple') {
+        return {
+            top: { style: BorderStyle.NONE, size: 0, color: "auto" },
+            bottom: { style: BorderStyle.NONE, size: 0, color: "auto" },
+            left: { style: BorderStyle.NONE, size: 0, color: "auto" },
+            right: { style: BorderStyle.NONE, size: 0, color: "auto" },
+            insideHorizontal: { style: BorderStyle.NONE, size: 0, color: "auto" },
+            insideVertical: { style: BorderStyle.NONE, size: 0, color: "auto" },
+        };
+    }
+    return {
+        top: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
+        bottom: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
+        left: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
+        right: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
+        insideHorizontal: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
+        insideVertical: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
+    };
+  };
 
   // 1. Header Section
   children.push(
@@ -309,11 +331,11 @@ export const generateDocx = async (data: ReportData, images: ReportImage[], layo
                 new TextRun({
                     text: "Comentários:",
                     bold: true,
-                    size: 22,
+                    size: 20, // Reduced from 22 (10pt)
                     font: "Arial"
                 }),
             ],
-            spacing: { before: 0, after: 100 }
+            spacing: { before: 0, after: 60 } // Reduced spacing (100 -> 60)
         })
     );
     
@@ -325,79 +347,105 @@ export const generateDocx = async (data: ReportData, images: ReportImage[], layo
                 children: [
                     new TextRun({
                         text: line,
-                        size: 22,
+                        size: 18, // Reduced from 22 (9pt)
                         font: "Arial"
                     }),
                 ],
-                spacing: { after: 100 }
+                spacing: { after: 60 } // Reduced spacing (100 -> 60)
             })
         );
     }
     
-    children.push(new Paragraph({ spacing: { after: 300 } }));
+    children.push(new Paragraph({ spacing: { after: 120 } })); // Reduced spacing (300 -> 120)
   } else {
-    children.push(new Paragraph({ spacing: { after: 300 } }));
+    children.push(new Paragraph({ spacing: { after: 120 } })); // Reduced spacing
   }
 
   // 3. Images Section
   if (layout === 'list') {
-      // 1-Column Layout (List)
-      for (let i = 0; i < images.length; i++) {
-        const img = images[i];
-        try {
-            const processed = await processImage(img.file, img.rotation);
-            // In list mode, we fix width to ~13cm (500px) and let height adjust naturally
-            // No strict box needed here, usually vertical photos are fine in a list
-            const { width, height } = calculateFitDimensions(processed.width, processed.height, 500, 800);
-            
-            children.push(
-                new Paragraph({
-                    alignment: AlignmentType.CENTER,
-                    children: [
-                        new ImageRun({
-                            data: processed.buffer,
-                            transformation: {
-                                width: width,
-                                height: height,
-                            },
-                            type: "jpg"
-                        }),
-                    ],
-                    spacing: { before: 100, after: 80 } 
-                })
-            );
+      // 1-Column Layout
+      // Use Table for list ONLY if we need visible borders (styleMode !== simple)
+      if (styleMode === 'simple') {
+          for (let i = 0; i < images.length; i++) {
+            const img = images[i];
+            try {
+                const processed = await processImage(img.file, img.rotation);
+                const { width, height } = calculateFitDimensions(processed.width, processed.height, 500, 800);
+                
+                children.push(
+                    new Paragraph({
+                        alignment: AlignmentType.CENTER,
+                        children: [
+                            new ImageRun({
+                                data: processed.buffer,
+                                transformation: { width, height },
+                                type: "jpg"
+                            }),
+                        ],
+                        spacing: { before: 100, after: 80 } 
+                    })
+                );
 
-            if (img.description) {
+                // Caption
                 children.push(
                     new Paragraph({
                         alignment: AlignmentType.CENTER,
                         children: [
                             new TextRun({
-                                text: `Figura ${i + 1}: `,
+                                text: img.description ? `Figura ${i + 1}: ` : `Figura ${i + 1}`,
                                 bold: true,
                                 size: 20,
                                 font: "Arial"
                             }),
-                            new TextRun({
-                                text: img.description,
-                                italics: true,
-                                size: 20,
-                                font: "Arial"
-                            })
+                            ...(img.description ? [
+                                new TextRun({
+                                    text: img.description,
+                                    italics: true,
+                                    size: 20,
+                                    font: "Arial"
+                                })
+                            ] : [])
                         ],
                         spacing: { after: 300 } 
                     })
                 );
-            } else {
-                children.push(new Paragraph({ spacing: { after: 300 } }));
+
+            } catch (e) {
+                console.error(`Failed to process image ${img.id}`, e);
             }
-        } catch (e) {
-            console.error(`Failed to process image ${img.id}`, e);
-        }
+          }
+      } else {
+          // List with Borders (Table-based 1 column)
+          const rows = [];
+          for (let i = 0; i < images.length; i++) {
+            const img = images[i];
+            try {
+                const processed = await processImage(img.file, img.rotation);
+                // Wider constraint for table list
+                const content = createCellContent(processed, img, i, 500, 800, 20);
+                
+                rows.push(
+                    new TableRow({
+                        children: [
+                            new TableCell({
+                                children: content,
+                                borders: getBorders(),
+                                margins: { top: 200, bottom: 200, left: 200, right: 200 }
+                            })
+                        ]
+                    })
+                );
+            } catch (e) { console.error(e); }
+          }
+          children.push(new Table({
+              rows: rows,
+              width: { size: 100, type: WidthType.PERCENTAGE },
+              borders: getBorders()
+          }));
       }
+
   } else if (layout === 'grid3') {
     // 3-Column Grid Layout
-    // Constraints: Width ~190px. Height ~150px (approx 4:3 landscape box)
     const MAX_W = 190;
     const MAX_H = 150;
 
@@ -421,44 +469,34 @@ export const generateDocx = async (data: ReportData, images: ReportImage[], layo
                 ? createCellContent(p3, img3, i + 2, MAX_W, MAX_H, 18)
                 : [new Paragraph({})];
 
+            // Define borders for cells
+            const cellBorder = styleMode === 'simple' 
+                ? { top: { style: BorderStyle.NONE, size: 0, color: "auto" }, bottom: { style: BorderStyle.NONE, size: 0, color: "auto" }, left: { style: BorderStyle.NONE, size: 0, color: "auto" }, right: { style: BorderStyle.NONE, size: 0, color: "auto" } }
+                : { top: { style: BorderStyle.SINGLE, size: 1 }, bottom: { style: BorderStyle.SINGLE, size: 1 }, left: { style: BorderStyle.SINGLE, size: 1 }, right: { style: BorderStyle.SINGLE, size: 1 } };
+
             rows.push(
                 new TableRow({
                     children: [
                         new TableCell({
                             children: cell1Children,
                             width: { size: 33.33, type: WidthType.PERCENTAGE },
-                            verticalAlign: VerticalAlign.CENTER, // Center Vertically
-                            borders: {
-                                top: { style: BorderStyle.NONE, size: 0, color: "auto" },
-                                bottom: { style: BorderStyle.NONE, size: 0, color: "auto" },
-                                left: { style: BorderStyle.NONE, size: 0, color: "auto" },
-                                right: { style: BorderStyle.NONE, size: 0, color: "auto" },
-                            },
-                            margins: { top: 100, bottom: 200, right: 100 }
+                            verticalAlign: VerticalAlign.CENTER,
+                            borders: cellBorder,
+                            margins: { top: 100, bottom: 200, right: 100, left: 100 }
                         }),
                         new TableCell({
                             children: cell2Children,
                             width: { size: 33.33, type: WidthType.PERCENTAGE },
                             verticalAlign: VerticalAlign.CENTER,
-                            borders: {
-                                top: { style: BorderStyle.NONE, size: 0, color: "auto" },
-                                bottom: { style: BorderStyle.NONE, size: 0, color: "auto" },
-                                left: { style: BorderStyle.NONE, size: 0, color: "auto" },
-                                right: { style: BorderStyle.NONE, size: 0, color: "auto" },
-                            },
+                            borders: cellBorder,
                             margins: { top: 100, bottom: 200, left: 50, right: 50 }
                         }),
                         new TableCell({
                             children: cell3Children,
                             width: { size: 33.33, type: WidthType.PERCENTAGE },
                             verticalAlign: VerticalAlign.CENTER,
-                            borders: {
-                                top: { style: BorderStyle.NONE, size: 0, color: "auto" },
-                                bottom: { style: BorderStyle.NONE, size: 0, color: "auto" },
-                                left: { style: BorderStyle.NONE, size: 0, color: "auto" },
-                                right: { style: BorderStyle.NONE, size: 0, color: "auto" },
-                            },
-                            margins: { top: 100, bottom: 200, left: 100 }
+                            borders: cellBorder,
+                            margins: { top: 100, bottom: 200, left: 100, right: 100 }
                         }),
                     ],
                 })
@@ -474,19 +512,18 @@ export const generateDocx = async (data: ReportData, images: ReportImage[], layo
             layout: TableLayoutType.FIXED,
             rows: rows,
             width: { size: 100, type: WidthType.PERCENTAGE },
-            borders: {
+            borders: styleMode === 'simple' ? {
                 top: { style: BorderStyle.NONE, size: 0, color: "auto" },
                 bottom: { style: BorderStyle.NONE, size: 0, color: "auto" },
                 left: { style: BorderStyle.NONE, size: 0, color: "auto" },
                 right: { style: BorderStyle.NONE, size: 0, color: "auto" },
                 insideHorizontal: { style: BorderStyle.NONE, size: 0, color: "auto" },
                 insideVertical: { style: BorderStyle.NONE, size: 0, color: "auto" },
-            }
+            } : getBorders()
         })
     );
   } else {
       // 2-Column Grid Layout
-      // Constraints: Width ~290px. Height ~220px
       const MAX_W = 290;
       const MAX_H = 220;
 
@@ -505,6 +542,10 @@ export const generateDocx = async (data: ReportData, images: ReportImage[], layo
                   ? createCellContent(p2, img2, i + 1, MAX_W, MAX_H, 20) 
                   : [new Paragraph({})];
 
+              const cellBorder = styleMode === 'simple' 
+                ? { top: { style: BorderStyle.NONE, size: 0, color: "auto" }, bottom: { style: BorderStyle.NONE, size: 0, color: "auto" }, left: { style: BorderStyle.NONE, size: 0, color: "auto" }, right: { style: BorderStyle.NONE, size: 0, color: "auto" } }
+                : { top: { style: BorderStyle.SINGLE, size: 1 }, bottom: { style: BorderStyle.SINGLE, size: 1 }, left: { style: BorderStyle.SINGLE, size: 1 }, right: { style: BorderStyle.SINGLE, size: 1 } };
+
               rows.push(
                   new TableRow({
                       children: [
@@ -512,25 +553,15 @@ export const generateDocx = async (data: ReportData, images: ReportImage[], layo
                               children: cell1Children,
                               width: { size: 50, type: WidthType.PERCENTAGE },
                               verticalAlign: VerticalAlign.CENTER,
-                              borders: {
-                                  top: { style: BorderStyle.NONE, size: 0, color: "auto" },
-                                  bottom: { style: BorderStyle.NONE, size: 0, color: "auto" },
-                                  left: { style: BorderStyle.NONE, size: 0, color: "auto" },
-                                  right: { style: BorderStyle.NONE, size: 0, color: "auto" },
-                              },
-                              margins: { top: 100, bottom: 200, right: 150 }
+                              borders: cellBorder,
+                              margins: { top: 100, bottom: 200, right: 150, left: 150 }
                           }),
                           new TableCell({
                               children: cell2Children,
                               width: { size: 50, type: WidthType.PERCENTAGE },
                               verticalAlign: VerticalAlign.CENTER,
-                              borders: {
-                                  top: { style: BorderStyle.NONE, size: 0, color: "auto" },
-                                  bottom: { style: BorderStyle.NONE, size: 0, color: "auto" },
-                                  left: { style: BorderStyle.NONE, size: 0, color: "auto" },
-                                  right: { style: BorderStyle.NONE, size: 0, color: "auto" },
-                              },
-                              margins: { top: 100, bottom: 200, left: 150 }
+                              borders: cellBorder,
+                              margins: { top: 100, bottom: 200, left: 150, right: 150 }
                           }),
                       ],
                   })
@@ -546,14 +577,14 @@ export const generateDocx = async (data: ReportData, images: ReportImage[], layo
               layout: TableLayoutType.FIXED,
               rows: rows,
               width: { size: 100, type: WidthType.PERCENTAGE },
-              borders: {
-                  top: { style: BorderStyle.NONE, size: 0, color: "auto" },
-                  bottom: { style: BorderStyle.NONE, size: 0, color: "auto" },
-                  left: { style: BorderStyle.NONE, size: 0, color: "auto" },
-                  right: { style: BorderStyle.NONE, size: 0, color: "auto" },
-                  insideHorizontal: { style: BorderStyle.NONE, size: 0, color: "auto" },
-                  insideVertical: { style: BorderStyle.NONE, size: 0, color: "auto" },
-              }
+              borders: styleMode === 'simple' ? {
+                top: { style: BorderStyle.NONE, size: 0, color: "auto" },
+                bottom: { style: BorderStyle.NONE, size: 0, color: "auto" },
+                left: { style: BorderStyle.NONE, size: 0, color: "auto" },
+                right: { style: BorderStyle.NONE, size: 0, color: "auto" },
+                insideHorizontal: { style: BorderStyle.NONE, size: 0, color: "auto" },
+                insideVertical: { style: BorderStyle.NONE, size: 0, color: "auto" },
+            } : getBorders()
           })
       );
   }
