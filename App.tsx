@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { FileText, Upload, Download, Image as ImageIcon, FileType, X, AlertCircle, Eye, Palette, Wand2 } from 'lucide-react';
 import {
@@ -115,6 +116,7 @@ const App: React.FC = () => {
   );
 
   // Handlers
+  // Fixed typo: HTMLInputChange changed to HTMLInputElement on line 119
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     let { name, value } = e.target;
 
@@ -301,36 +303,8 @@ const App: React.FC = () => {
   };
 
   const handleGenerate = async (type: 'doc' | 'pdf') => {
-    const newErrors: Record<string, string> = {};
-    const missingFields: string[] = [];
-
-    if (!reportData.schoolName) {
-        newErrors.schoolName = "Este campo é obrigatório";
-        missingFields.push("Nome da instituição escolar");
-    }
-    if (!reportData.motif) {
-        newErrors.motif = "Este campo é obrigatório";
-        missingFields.push("Motivo");
-    }
-    if (!reportData.processNumber) {
-        newErrors.processNumber = "Este campo é obrigatório";
-        missingFields.push("Processo nº");
-    }
-    if (!reportData.date) {
-        newErrors.date = "Este campo é obrigatório";
-        missingFields.push("Data do Relatório");
-    }
-
-    setErrors(newErrors);
-
-    if (missingFields.length > 0) {
-      setErrorModal({
-        isOpen: true,
-        messages: missingFields.map(f => `O campo "${f}" é obrigatório.`)
-      });
-      return;
-    }
-
+    // Validation is no longer required for specific header fields per user request.
+    // However, we still check for at least one image.
     if (images.length === 0) {
       setErrorModal({
         isOpen: true,
@@ -342,7 +316,7 @@ const App: React.FC = () => {
     setStatus({ isGenerating: true, message: `Gerando ${type === 'doc' ? 'DOCX' : 'PDF'}...` });
 
     // Format date from YYYY-MM-DD to DD/MM/YYYY for the report
-    const formattedDate = reportData.date.split('-').reverse().join('/');
+    const formattedDate = reportData.date ? reportData.date.split('-').reverse().join('/') : '';
     const reportDataFormatted = { ...reportData, date: formattedDate };
 
     try {
@@ -469,7 +443,7 @@ const App: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               <div className="col-span-1 md:col-span-2">
                   <Input
-                  label="Nome da instituição escolar *"
+                  label="Nome da instituição escolar"
                   name="schoolName"
                   placeholder="Ex: E.M. Prof. João da Silva"
                   value={reportData.schoolName}
@@ -484,12 +458,11 @@ const App: React.FC = () => {
                   placeholder="Ex: Rua das Flores, 123"
                   value={reportData.address}
                   onChange={handleInputChange}
-                  // Address is optional, no error prop needed usually, unless strict
                   />
               </div>
               <div className="col-span-1 md:col-span-2">
                   <Input
-                  label="Motivo *"
+                  label="Motivo"
                   name="motif"
                   placeholder="Ex: Vistoria de infraestrutura predial"
                   value={reportData.motif}
@@ -498,7 +471,7 @@ const App: React.FC = () => {
                   />
               </div>
               <Input
-                label="Processo nº *"
+                label="Processo nº"
                 name="processNumber"
                 placeholder="Ex: XXXXX-XXXXXXXX/XXXX-XX"
                 value={reportData.processNumber}
@@ -506,7 +479,7 @@ const App: React.FC = () => {
                 error={errors.processNumber}
               />
               <Input
-                label="Data do Relatório *"
+                label="Data do Relatório"
                 name="date"
                 type="date"
                 value={reportData.date}

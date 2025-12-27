@@ -1,11 +1,7 @@
+
 import { GoogleGenAI } from "@google/genai";
 
 export const isGeminiConfigured = !!process.env.API_KEY;
-
-let ai: GoogleGenAI | null = null;
-if (isGeminiConfigured) {
-  ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-}
 
 /**
  * Converts a File object to a Base64 string suitable for the Gemini API.
@@ -31,16 +27,19 @@ const fileToPart = async (file: File): Promise<{ inlineData: { data: string; mim
  * Generates a technical description for an image using Gemini.
  */
 export const generateImageDescription = async (file: File): Promise<string> => {
-  if (!ai) {
+  if (!process.env.API_KEY) {
     console.warn("Gemini API not configured.");
     return "";
   }
 
   try {
+    // Initializing GoogleGenAI with named parameter right before use to ensure latest configuration.
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const imagePart = await fileToPart(file);
 
+    // Using gemini-3-flash-preview for basic text/vision task.
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-flash-preview',
       contents: {
         parts: [
           imagePart,
@@ -51,6 +50,7 @@ export const generateImageDescription = async (file: File): Promise<string> => {
       },
     });
 
+    // Accessing .text property directly as a getter (not a method).
     return response.text?.trim() || "";
   } catch (error) {
     console.error("Erro ao gerar descrição com Gemini:", error);
